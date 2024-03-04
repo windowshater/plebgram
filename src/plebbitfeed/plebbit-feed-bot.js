@@ -5,7 +5,7 @@ const historyCidsFile = "history.json";
 let processedCids = [];
 loadOldPosts();
 
-async function polling(address, bot) {
+async function polling(address, tgBotInstance) {
     const plebbit = await Plebbit();
     plebbit.on("error", console.log);
     const sub = await plebbit.createSubplebbit({
@@ -43,22 +43,32 @@ async function polling(address, bot) {
                 ],
             };
             if (newPost.link) {
-                bot.sendPhoto(process.env.FEED_BOT_CHAT, postData.link, {
-                    parse_mode: "Markdown",
-                    caption: captionMessage,
-                    reply_markup: replyMarkupMessage,
-                }).catch((error) => {
-                    console.log(error);
-                    bot.sendMessage(process.env.FEED_BOT_CHAT, captionMessage, {
+                tgBotInstance
+                    .sendPhoto(process.env.FEED_BOT_CHAT, postData.link, {
+                        parse_mode: "Markdown",
+                        caption: captionMessage,
+                        reply_markup: replyMarkupMessage,
+                    })
+                    .catch((error) => {
+                        console.log(error);
+                        tgBotInstance.sendMessage(
+                            process.env.FEED_BOT_CHAT,
+                            captionMessage,
+                            {
+                                parse_mode: "Markdown",
+                                reply_markup: replyMarkupMessage,
+                            }
+                        );
+                    });
+            } else {
+                tgBotInstance.sendMessage(
+                    process.env.FEED_BOT_CHAT,
+                    captionMessage,
+                    {
                         parse_mode: "Markdown",
                         reply_markup: replyMarkupMessage,
-                    });
-                });
-            } else {
-                bot.sendMessage(process.env.FEED_BOT_CHAT, captionMessage, {
-                    parse_mode: "Markdown",
-                    reply_markup: replyMarkupMessage,
-                });
+                    }
+                );
             }
 
             console.log(postData);
@@ -129,8 +139,8 @@ const subs = [
     "💩posting.eth",
     "plebbrothers.eth",
 ];
-export function main(bot) {
+export function main(tgBotInstance) {
     for (const sub of subs) {
-        polling(sub, bot);
+        polling(sub, tgBotInstance);
     }
 }
