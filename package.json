@@ -1,0 +1,19 @@
+{
+    "name": "plebgram",
+    "version": "1.0.0",
+    "description": "A bot to handle subplebbit interactions on telegram",
+    "main": "index.js",
+    "type": "module",
+    "scripts": {
+        "test": "echo \"Error: no test specified\" && exit 1",
+        "start": "node src/index.js"
+    },
+    "keywords": [],
+    "author": "",
+    "license": "ISC",
+    "dependencies": {
+        "@plebbit/plebbit-js": "git+https://github.com/plebbit/plebbit-js.git",
+        "dotenv": "^16.4.5",
+        "node-telegram-bot-api": "^0.64.0"
+    }
+}
