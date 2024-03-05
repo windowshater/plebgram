@@ -52,6 +52,7 @@ async function polling(address: string, tgBotInstance: TelegramBot) {
                     })
                     .catch((error) => {
                         console.log(error);
+                        // if the link is not a valid image, send the caption
                         tgBotInstance.sendMessage(
                             process.env.FEED_BOT_CHAT,
                             captionMessage,
@@ -81,10 +82,6 @@ async function polling(address: string, tgBotInstance: TelegramBot) {
         }
     });
     sub.update();
-    setTimeout(() => {
-        sub.stop();
-        sub.update();
-    }, 6000);
 }
 function isNewPost(postCid: string) {
     return !processedCids.includes(postCid);
