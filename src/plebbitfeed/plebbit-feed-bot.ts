@@ -3,10 +3,13 @@ import fs from "fs";
 import TelegramBot from "node-telegram-bot-api";
 
 const historyCidsFile = "history.json";
-let processedCids = [];
+let processedCids: string[] = [];
 loadOldPosts();
 
 async function polling(address: string, tgBotInstance: TelegramBot) {
+    if (!process.env.FEED_BOT_CHAT || !process.env.FEED_BOT_CHAT) {
+        throw new Error("FEED_BOT_CHAT or FEED_BOT_TOKEN not set");
+    }
     const plebbit = await Plebbit();
     plebbit.on("error", console.log);
     const sub = await plebbit.createSubplebbit({
@@ -15,7 +18,10 @@ async function polling(address: string, tgBotInstance: TelegramBot) {
     // will check if its a new post by looking the history file to send a new message
     sub.on("update", async (updatedSubplebbitInstance) => {
         loadOldPosts();
-        if (isNewPost(updatedSubplebbitInstance.lastPostCid)) {
+        if (
+            updatedSubplebbitInstance.lastPostCid &&
+            isNewPost(updatedSubplebbitInstance.lastPostCid)
+        ) {
             processNewPost(updatedSubplebbitInstance.lastPostCid);
             const newPost = await plebbit.getComment(
                 updatedSubplebbitInstance.lastPostCid
@@ -43,9 +49,9 @@ async function polling(address: string, tgBotInstance: TelegramBot) {
                     ],
                 ],
             };
-            if (newPost.link) {
+            if (postData.link) {
                 tgBotInstance
-                    .sendPhoto(process.env.FEED_BOT_CHAT, postData.link, {
+                    .sendPhoto(process.env.FEED_BOT_CHAT!, postData.link, {
                         parse_mode: "Markdown",
                         caption: captionMessage,
                         reply_markup: replyMarkupMessage,
@@ -54,7 +60,7 @@ async function polling(address: string, tgBotInstance: TelegramBot) {
                         console.log(error);
                         // if the link is not a valid image, send the caption
                         tgBotInstance.sendMessage(
-                            process.env.FEED_BOT_CHAT,
+                            process.env.FEED_BOT_CHAT!,
                             captionMessage,
                             {
                                 parse_mode: "Markdown",
@@ -64,7 +70,7 @@ async function polling(address: string, tgBotInstance: TelegramBot) {
                     });
             } else {
                 tgBotInstance.sendMessage(
-                    process.env.FEED_BOT_CHAT,
+                    process.env.FEED_BOT_CHAT!,
                     captionMessage,
                     {
                         parse_mode: "Markdown",
