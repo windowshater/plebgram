@@ -1,11 +1,12 @@
 import Plebbit from "@plebbit/plebbit-js";
 import fs from "fs";
+import TelegramBot from "node-telegram-bot-api";
 
 const historyCidsFile = "history.json";
 let processedCids = [];
 loadOldPosts();
 
-async function polling(address, tgBotInstance) {
+async function polling(address: string, tgBotInstance: TelegramBot) {
     const plebbit = await Plebbit();
     plebbit.on("error", console.log);
     const sub = await plebbit.createSubplebbit({
@@ -85,10 +86,10 @@ async function polling(address, tgBotInstance) {
         sub.update();
     }, 6000);
 }
-function isNewPost(postCid) {
+function isNewPost(postCid: string) {
     return !processedCids.includes(postCid);
 }
-function processNewPost(postCid) {
+function processNewPost(postCid: string) {
     processedCids.push(postCid);
     fs.writeFile(
         historyCidsFile,
@@ -139,7 +140,7 @@ const subs = [
     "💩posting.eth",
     "plebbrothers.eth",
 ];
-export function main(tgBotInstance) {
+export function main(tgBotInstance: TelegramBot) {
     for (const sub of subs) {
         polling(sub, tgBotInstance);
     }

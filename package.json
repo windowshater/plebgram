@@ -6,14 +6,20 @@
     "type": "module",
     "scripts": {
         "test": "echo \"Error: no test specified\" && exit 1",
-        "start": "node src/index.js"
+        "start": "node dist/index.js",
+        "build": "tsc"
     },
     "keywords": [],
     "author": "",
     "license": "ISC",
     "dependencies": {
         "@plebbit/plebbit-js": "git+https://github.com/plebbit/plebbit-js.git",
+        "@types/node-telegram-bot-api": "^0.64.3",
         "dotenv": "^16.4.5",
-        "node-telegram-bot-api": "^0.64.0"
+        "node-telegram-bot-api": "^0.64.0",
+        "typescript": "^5.3.3"
+    },
+    "devDependencies": {
+        "@types/node": "^20.11.24"
     }
 }
