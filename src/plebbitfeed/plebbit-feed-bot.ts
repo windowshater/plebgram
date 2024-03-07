@@ -143,7 +143,7 @@ const subs = [
     "💩posting.eth",
     "plebbrothers.eth",
 ];
-export function main(tgBotInstance: TelegramBot) {
+export function startPlebbitFeedBot(tgBotInstance: TelegramBot) {
     for (const sub of subs) {
         polling(sub, tgBotInstance);
     }
