@@ -1,4 +1,4 @@
-[![@plebgrambot](plebgramlogo.png =150x)](https://t.me/plebgrambot)
+<a href="https://t.me/plebgrambot"><img src="plebgramlogo.png"  width="150" ></a>
 
 # plebgram
 
