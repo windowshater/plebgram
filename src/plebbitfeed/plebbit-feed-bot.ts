@@ -8,7 +8,7 @@ loadOldPosts();
 
 async function polling(address: string, tgBotInstance: TelegramBot) {
     if (!process.env.FEED_BOT_CHAT || !process.env.FEED_BOT_CHAT) {
-        throw new Error("FEED_BOT_CHAT or FEED_BOT_TOKEN not set");
+        throw new Error("FEED_BOT_CHAT or BOT_TOKEN not set");
     }
     const plebbit = await Plebbit();
     plebbit.on("error", console.log);
