@@ -1,12 +1,12 @@
 import Plebbit from "@plebbit/plebbit-js";
 import fs from "fs";
-import TelegramBot from "node-telegram-bot-api";
+import { Telegraf } from "telegraf";
 
 const historyCidsFile = "history.json";
 let processedCids: string[] = [];
 loadOldPosts();
 
-async function polling(address: string, tgBotInstance: TelegramBot) {
+async function polling(address: string, tgBotInstance: Telegraf) {
     if (!process.env.FEED_BOT_CHAT || !process.env.FEED_BOT_CHAT) {
         throw new Error("FEED_BOT_CHAT or BOT_TOKEN not set");
     }
@@ -50,7 +50,7 @@ async function polling(address: string, tgBotInstance: TelegramBot) {
                 ],
             };
             if (postData.link) {
-                tgBotInstance
+                tgBotInstance.telegram
                     .sendPhoto(process.env.FEED_BOT_CHAT!, postData.link, {
                         parse_mode: "Markdown",
                         caption: captionMessage,
@@ -59,7 +59,7 @@ async function polling(address: string, tgBotInstance: TelegramBot) {
                     .catch((error) => {
                         console.log(error);
                         // if the link is not a valid image, send the caption
-                        tgBotInstance.sendMessage(
+                        tgBotInstance.telegram.sendMessage(
                             process.env.FEED_BOT_CHAT!,
                             captionMessage,
                             {
@@ -69,7 +69,7 @@ async function polling(address: string, tgBotInstance: TelegramBot) {
                         );
                     });
             } else {
-                tgBotInstance.sendMessage(
+                tgBotInstance.telegram.sendMessage(
                     process.env.FEED_BOT_CHAT!,
                     captionMessage,
                     {
@@ -143,7 +143,7 @@ const subs = [
     "💩posting.eth",
     "plebbrothers.eth",
 ];
-export function startPlebbitFeedBot(tgBotInstance: TelegramBot) {
+export function startPlebbitFeedBot(tgBotInstance: Telegraf) {
     for (const sub of subs) {
         polling(sub, tgBotInstance);
     }

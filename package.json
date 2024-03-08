@@ -14,13 +14,13 @@
     "license": "ISC",
     "dependencies": {
         "@plebbit/plebbit-js": "git+https://github.com/plebbit/plebbit-js.git",
-        "@types/node-telegram-bot-api": "^0.64.3",
         "dotenv": "^16.4.5",
-        "node-telegram-bot-api": "^0.64.0",
         "redis": "^4.6.13",
+        "telegraf": "^4.16.3",
         "typescript": "^5.3.3"
     },
     "devDependencies": {
+        "@telegraf/types": "^7.1.0",
         "@types/node": "^20.11.24",
         "tsx": "^4.7.1"
     }
