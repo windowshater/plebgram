@@ -11,6 +11,8 @@ if (!process.env.BOT_TOKEN) {
 
 const plebbitFeedTgBot = new Telegraf(process.env.BOT_TOKEN);
 
+plebbitFeedTgBot.launch();
+
 const start = async () => {
     try {
         await client.connect();

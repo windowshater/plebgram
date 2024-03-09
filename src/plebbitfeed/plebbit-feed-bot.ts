@@ -1,12 +1,26 @@
 import Plebbit from "@plebbit/plebbit-js";
 import fs from "fs";
-import { Telegraf } from "telegraf";
+import { Context, Markup, Telegraf } from "telegraf";
+import { isUserRegistered } from "../plebgram/plebgram-bot.js";
 
 const historyCidsFile = "history.json";
 let processedCids: string[] = [];
 loadOldPosts();
 
+async function checkUser(context: Context) {
+    if (!(await isUserRegistered(`${context.from!.id}`))) {
+        return "You are not registered yet. Please go to @plebgrambot to register";
+    }
+    return "User is registered.";
+}
+
 async function polling(address: string, tgBotInstance: Telegraf) {
+    tgBotInstance.action(/.+/, async (ctx) => {
+        return tgBotInstance.telegram.answerCbQuery(
+            ctx.callbackQuery.id,
+            `${await checkUser(ctx)}`
+        );
+    });
     if (!process.env.FEED_BOT_CHAT || !process.env.FEED_BOT_CHAT) {
         throw new Error("FEED_BOT_CHAT or BOT_TOKEN not set");
     }
@@ -35,26 +49,29 @@ async function polling(address: string, tgBotInstance: Telegraf) {
                 subplebbitAddress: newPost.subplebbitAddress,
             };
             const captionMessage = `*${postData.title}*\n${postData.content}\n\nSubplebbit: [${newPost.subplebbitAddress}](https://plebchan.eth.limo/#/p/${newPost.subplebbitAddress})`;
-            const replyMarkupMessage = {
-                inline_keyboard: [
-                    [
-                        {
-                            text: "View on Plebchan",
-                            url: `https://plebchan.eth.limo/#/p/${newPost.subplebbitAddress}/c/${newPost.postCid}`,
-                        },
-                        {
-                            text: "View on Seedit",
-                            url: `https://seedit.eth.limo/#/p/${newPost.subplebbitAddress}/c/${newPost.postCid}`,
-                        },
-                    ],
+            const markupButtons = [
+                [
+                    Markup.button.url(
+                        "View on Seedit",
+                        `https://seedit.eth.limo/#/p/${newPost.subplebbitAddress}/c/${newPost.postCid}`
+                    ),
+                    Markup.button.url(
+                        "View on Plebchan",
+                        `https://plebchan.eth.limo/#/p/${newPost.subplebbitAddress}/c/${newPost.postCid}`
+                    ),
                 ],
-            };
+                [
+                    Markup.button.callback("upvote", "upvote"),
+                    Markup.button.callback("downvote", "downvote"),
+                ],
+            ];
+
             if (postData.link) {
                 tgBotInstance.telegram
                     .sendPhoto(process.env.FEED_BOT_CHAT!, postData.link, {
                         parse_mode: "Markdown",
                         caption: captionMessage,
-                        reply_markup: replyMarkupMessage,
+                        ...Markup.inlineKeyboard(markupButtons),
                     })
                     .catch((error) => {
                         console.log(error);
@@ -64,7 +81,8 @@ async function polling(address: string, tgBotInstance: Telegraf) {
                             captionMessage,
                             {
                                 parse_mode: "Markdown",
-                                reply_markup: replyMarkupMessage,
+
+                                ...Markup.inlineKeyboard(markupButtons),
                             }
                         );
                     });
@@ -74,7 +92,7 @@ async function polling(address: string, tgBotInstance: Telegraf) {
                     captionMessage,
                     {
                         parse_mode: "Markdown",
-                        reply_markup: replyMarkupMessage,
+                        ...Markup.inlineKeyboard(markupButtons),
                     }
                 );
             }
