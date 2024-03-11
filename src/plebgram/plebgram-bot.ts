@@ -4,6 +4,7 @@ import { Redis } from "@telegraf/session/redis";
 import { PlebbitService } from "../services/plebbit.service.js";
 import { User } from "../models/user.js";
 import { Signer } from "@plebbit/plebbit-js/dist/node/signer/index.js";
+import { log } from "../index.js";
 const userService = new UserService();
 const plebbitService = new PlebbitService();
 const scene = new Scenes.WizardScene<Scenes.WizardContext>(
@@ -17,14 +18,14 @@ const scene = new Scenes.WizardScene<Scenes.WizardContext>(
         return ctx.wizard.next();
     },
     async (ctx) => {
-        console.log(
+        log.info(
             "private key is",
             "text" in ctx.message! ? ctx.message!.text : ""
         );
         const privateKey = "text" in ctx.message! ? ctx.message!.text : "";
         const loadedSigner = await registerUser(`${ctx.from!.id}`, privateKey);
 
-        console.log(loadedSigner);
+        log.info(loadedSigner);
         if (!loadedSigner) {
             ctx.reply("Error: Invalid private key. Try again", {
                 reply_markup: {
@@ -33,7 +34,7 @@ const scene = new Scenes.WizardScene<Scenes.WizardContext>(
             });
             return;
         }
-        await ctx.reply(`Signer loaded successfully, registration complete
+        await ctx.reply(`Signer loaded successfully, login complete
 Address: ${loadedSigner.address}
 Private key: ${loadedSigner.privateKey}
 Public Key: ${loadedSigner.publicKey}
@@ -43,7 +44,10 @@ Short Address: ${loadedSigner.shortAddress}`);
 );
 const stage = new Scenes.Stage<Scenes.WizardContext>([scene]);
 
-async function registerUser(userId: string, privateKey: string): Signer | null {
+async function registerUser(
+    userId: string,
+    privateKey: string
+): Promise<Signer | null> {
     try {
         const loadedSigner = await plebbitService.loadSigner(privateKey);
         const user = new User();
@@ -52,13 +56,13 @@ async function registerUser(userId: string, privateKey: string): Signer | null {
         await userService.createUser(user);
         return loadedSigner;
     } catch (e) {
-        console.log(e);
+        log.error(e);
         return null;
     }
 }
 export async function isUserRegistered(tgUserId: string) {
     const user = await userService.getUser(tgUserId);
-    console.log("user is", user);
+    log.info("User already registred as", user);
     if (user) {
         return true;
     }
@@ -70,23 +74,24 @@ export async function startPlebgramBot(bot: Telegraf<Scenes.WizardContext>) {
         if (!(await isUserRegistered(`${ctx.from!.id}`))) {
             await ctx.reply(
                 `Welcome to Plebgram. Please register first. 
-Use /register to create a new user or /login to use an existing user.`
+Use /register to create a new user or /login to use an existing user.
+This process cannot be undone for now.`
             );
         }
     });
 
     const store = Redis({ url: "redis://127.0.0.1:6379" }) as any;
     bot.use(session({ store }));
-    console.log("using session");
+    log.info("storing sessions in redis");
     bot.use(stage.middleware());
-    console.log("using middleware");
+    log.info("using middleware");
     bot.command("login", async (ctx) => {
-        console.log("asked for login");
+        log.info("Someone asked for login");
         if (await isUserRegistered(`${ctx.message.chat.id}`)) {
             ctx.reply("You are already logged in");
             return;
         }
-        console.log("User not logged in");
+        log.info("User not logged in");
         ctx.scene.enter("sceneLogin");
     });
 }

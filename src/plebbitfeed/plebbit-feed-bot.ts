@@ -2,6 +2,7 @@ import Plebbit from "@plebbit/plebbit-js";
 import fs from "fs";
 import { Context, Markup, Scenes, Telegraf } from "telegraf";
 import { isUserRegistered } from "../plebgram/plebgram-bot.js";
+import { log } from "../index.js";
 
 const historyCidsFile = "history.json";
 let processedCids: string[] = [];
@@ -28,7 +29,9 @@ async function polling(
         throw new Error("FEED_BOT_CHAT or BOT_TOKEN not set");
     }
     const plebbit = await Plebbit();
-    plebbit.on("error", console.log);
+    plebbit.on("error", (error) => {
+        log.error(error);
+    });
     const sub = await plebbit.createSubplebbit({
         address: address,
     });
@@ -76,8 +79,8 @@ async function polling(
                         caption: captionMessage,
                         ...Markup.inlineKeyboard(markupButtons),
                     })
-                    .catch((error) => {
-                        console.log(error);
+                    .catch((error: any) => {
+                        log.error(error);
                         // if the link is not a valid image, send the caption
                         tgBotInstance.telegram.sendMessage(
                             process.env.FEED_BOT_CHAT!,
@@ -100,9 +103,9 @@ async function polling(
                 );
             }
 
-            console.log(postData);
+            log.info("New post: ", postData);
         } else {
-            console.log(
+            log.info(
                 "Post " + updatedSubplebbitInstance.lastPostCid,
                 " already processed"
             );
@@ -121,18 +124,18 @@ function processNewPost(postCid: string) {
         "utf8",
         (err) => {
             if (err) {
-                console.error("Error writing to file:", err);
+                log.error("Error writing to file:", err);
                 return;
             }
 
-            console.log("Data has been written to the file.");
+            log.info("Data has been written to the file.");
         }
     );
 }
 function loadOldPosts() {
     fs.readFile(historyCidsFile, "utf8", (err, data) => {
         if (err) {
-            console.error("Error reading file:", err);
+            log.error("Error reading file:", err);
             return;
         }
         if (!!data) {

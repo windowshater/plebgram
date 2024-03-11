@@ -1,4 +1,5 @@
 import { Plebbit } from "@plebbit/plebbit-js/dist/node/plebbit.js";
+import { log } from "../index.js";
 
 export class PlebbitService {
     plebbit: Plebbit;
@@ -15,7 +16,7 @@ export class PlebbitService {
             });
             return signerFromPrivateKey;
         } catch (e) {
-            console.error(e);
+            log.error(e);
             return null;
         }
     }
