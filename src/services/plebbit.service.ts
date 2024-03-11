@@ -21,7 +21,12 @@ export class PlebbitService {
         }
     }
     async createSigner() {
-        const signer = await this.plebbit.createSigner();
-        return signer;
+        try {
+            const signer = await this.plebbit.createSigner();
+            return signer;
+        } catch (e) {
+            log.error(e);
+            return null;
+        }
     }
 }

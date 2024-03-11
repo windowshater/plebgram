@@ -1,4 +1,4 @@
-import { Composer, Scenes, Telegraf, session } from "telegraf";
+import { Scenes, Telegraf, session } from "telegraf";
 import { UserService } from "../services/user.service.js";
 import { Redis } from "@telegraf/session/redis";
 import { PlebbitService } from "../services/plebbit.service.js";
@@ -7,7 +7,29 @@ import { Signer } from "@plebbit/plebbit-js/dist/node/signer/index.js";
 import { log } from "../index.js";
 const userService = new UserService();
 const plebbitService = new PlebbitService();
-const scene = new Scenes.WizardScene<Scenes.WizardContext>(
+const sceneRegister = new Scenes.WizardScene<Scenes.WizardContext>(
+    "sceneRegister",
+    async (ctx) => {
+        const loadedSigner = await registerUser(`${ctx.from!.id}`);
+        log.info(loadedSigner);
+        if (!loadedSigner) {
+            ctx.reply("Error. Try again later", {
+                reply_markup: {
+                    force_reply: true,
+                },
+            });
+            return ctx.scene.leave();
+        }
+        await ctx.reply(`Signer loaded successfully, registeration complete
+Address: ${loadedSigner.address}
+Private key: ${loadedSigner.privateKey}
+Public Key: ${loadedSigner.publicKey}
+Short Address: ${loadedSigner.shortAddress}`);
+        return ctx.scene.leave();
+    }
+);
+
+const sceneLogin = new Scenes.WizardScene<Scenes.WizardContext>(
     "sceneLogin",
     async (ctx) => {
         ctx.reply("Reply with your signer private key", {
@@ -23,15 +45,22 @@ const scene = new Scenes.WizardScene<Scenes.WizardContext>(
             "text" in ctx.message! ? ctx.message!.text : ""
         );
         const privateKey = "text" in ctx.message! ? ctx.message!.text : "";
-        const loadedSigner = await registerUser(`${ctx.from!.id}`, privateKey);
+        if (privateKey === "/exit") {
+            ctx.reply("Bye!");
+            return ctx.scene.leave();
+        }
+        const loadedSigner = await loginUser(`${ctx.from!.id}`, privateKey);
 
         log.info(loadedSigner);
         if (!loadedSigner) {
-            ctx.reply("Error: Invalid private key. Try again", {
-                reply_markup: {
-                    force_reply: true,
-                },
-            });
+            ctx.reply(
+                "Error: Invalid private key. Try again or use /exit to leave",
+                {
+                    reply_markup: {
+                        force_reply: true,
+                    },
+                }
+            );
             return;
         }
         await ctx.reply(`Signer loaded successfully, login complete
@@ -42,17 +71,39 @@ Short Address: ${loadedSigner.shortAddress}`);
         return ctx.scene.leave();
     }
 );
-const stage = new Scenes.Stage<Scenes.WizardContext>([scene]);
+const stage = new Scenes.Stage<Scenes.WizardContext>([
+    sceneLogin,
+    sceneRegister,
+]);
 
-async function registerUser(
+async function registerUser(userId: string): Promise<Signer | null> {
+    try {
+        const loadedSigner = await plebbitService.createSigner();
+        if (!loadedSigner) {
+            throw new Error("Error while creating signer");
+        }
+        const user = new User();
+        user.id = userId;
+        user.privateKey = loadedSigner.privateKey;
+        await userService.createUser(user);
+        return loadedSigner;
+    } catch (e) {
+        log.error(e);
+        return null;
+    }
+}
+async function loginUser(
     userId: string,
     privateKey: string
 ): Promise<Signer | null> {
     try {
         const loadedSigner = await plebbitService.loadSigner(privateKey);
+        if (!loadedSigner) {
+            throw new Error("Error while loading signer from private key");
+        }
         const user = new User();
         user.id = userId;
-        user.privateKey = privateKey;
+        user.privateKey = loadedSigner.privateKey;
         await userService.createUser(user);
         return loadedSigner;
     } catch (e) {
@@ -92,6 +143,15 @@ This process cannot be undone for now.`
             return;
         }
         log.info("User not logged in");
-        ctx.scene.enter("sceneLogin");
+        await ctx.scene.enter("sceneLogin");
+    });
+    bot.command("register", async (ctx) => {
+        log.info("Someone asked for register");
+        if (await isUserRegistered(`${ctx.message.chat.id}`)) {
+            ctx.reply("You are already logged in");
+            return;
+        }
+        log.info("User not logged in");
+        await ctx.scene.enter("sceneRegister");
     });
 }
