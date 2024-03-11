@@ -1,24 +1,27 @@
 import Plebbit from "@plebbit/plebbit-js";
 import fs from "fs";
-import { Context, Markup, Telegraf } from "telegraf";
+import { Context, Markup, Scenes, Telegraf } from "telegraf";
 import { isUserRegistered } from "../plebgram/plebgram-bot.js";
 
 const historyCidsFile = "history.json";
 let processedCids: string[] = [];
 loadOldPosts();
 
-async function checkUser(context: Context) {
+async function checkUser(context: Context, match: string) {
     if (!(await isUserRegistered(`${context.from!.id}`))) {
-        return "You are not registered yet. Please go to @plebgrambot to register";
+        return `Error on ${match} - You are not registered yet. Please go to @plebgrambot to register`;
     }
     return "User is registered.";
 }
 
-async function polling(address: string, tgBotInstance: Telegraf) {
+async function polling(
+    address: string,
+    tgBotInstance: Telegraf<Scenes.WizardContext>
+) {
     tgBotInstance.action(/.+/, async (ctx) => {
         return tgBotInstance.telegram.answerCbQuery(
             ctx.callbackQuery.id,
-            `${await checkUser(ctx)}`
+            `${await checkUser(ctx, ctx.match[0])}`
         );
     });
     if (!process.env.FEED_BOT_CHAT || !process.env.FEED_BOT_CHAT) {
@@ -161,7 +164,9 @@ const subs = [
     "💩posting.eth",
     "plebbrothers.eth",
 ];
-export function startPlebbitFeedBot(tgBotInstance: Telegraf) {
+export function startPlebbitFeedBot(
+    tgBotInstance: Telegraf<Scenes.WizardContext>
+) {
     for (const sub of subs) {
         polling(sub, tgBotInstance);
     }
