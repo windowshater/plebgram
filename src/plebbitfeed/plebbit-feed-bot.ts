@@ -1,30 +1,16 @@
 import Plebbit from "@plebbit/plebbit-js";
 import fs from "fs";
-import { Context, Markup, Scenes, Telegraf } from "telegraf";
-import { isUserRegistered } from "../plebgram/plebgram-bot.js";
+import { Markup, Scenes, Telegraf } from "telegraf";
 import { log } from "../index.js";
 
 const historyCidsFile = "history.json";
 let processedCids: string[] = [];
 loadOldPosts();
 
-async function checkUser(context: Context, match: string) {
-    if (!(await isUserRegistered(`${context.from!.id}`))) {
-        return `Error on ${match} - You are not registered yet. Please go to @plebgrambot to register`;
-    }
-    return "User is registered.";
-}
-
 async function polling(
     address: string,
     tgBotInstance: Telegraf<Scenes.WizardContext>
 ) {
-    tgBotInstance.action(/.+/, async (ctx) => {
-        return tgBotInstance.telegram.answerCbQuery(
-            ctx.callbackQuery.id,
-            `${await checkUser(ctx, ctx.match[0])}`
-        );
-    });
     if (!process.env.FEED_BOT_CHAT || !process.env.FEED_BOT_CHAT) {
         throw new Error("FEED_BOT_CHAT or BOT_TOKEN not set");
     }
@@ -67,8 +53,9 @@ async function polling(
                     ),
                 ],
                 [
-                    Markup.button.callback("upvote", "upvote"),
-                    Markup.button.callback("downvote", "downvote"),
+                    Markup.button.callback("Upvote", "upvote"),
+                    Markup.button.callback("Remove vote", "removeVote"),
+                    Markup.button.callback("Downvote", "downvote"),
                 ],
             ];
 

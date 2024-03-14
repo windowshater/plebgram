@@ -2,9 +2,12 @@ import { client } from "../config/db.js";
 import { User } from "../models/user.js";
 
 export class UserService {
-    async getUser(userId: string) {
-        const cliente = await client.get(userId);
-        return cliente;
+    async getUser(userId: string): Promise<User | null> {
+        const user = await client.get(userId);
+        if (user) {
+            return JSON.parse(user) as User;
+        }
+        return null;
     }
     async createUser(user: User) {
         const serielizedUser = JSON.stringify(user);
