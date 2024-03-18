@@ -14,7 +14,10 @@ async function polling(
     if (!process.env.FEED_BOT_CHAT || !process.env.FEED_BOT_CHAT) {
         throw new Error("FEED_BOT_CHAT or BOT_TOKEN not set");
     }
-    const plebbit = await Plebbit();
+    const plebbit = await Plebbit({
+        ipfsGatewayUrls: ["https://rannithepleb.com/api/v0"],
+        ipfsHttpClientsOptions: ["http://localhost:5001/api/v0"],
+    });
     plebbit.on("error", (error) => {
         log.error(error);
     });
@@ -40,6 +43,7 @@ async function polling(
                 cid: newPost.cid,
                 subplebbitAddress: newPost.subplebbitAddress,
             };
+            //TODO: telegram has a 1024 character limit, need to split it
             const captionMessage = `*${postData.title}*\n${postData.content}\n\nSubplebbit: [${newPost.subplebbitAddress}](https://plebchan.eth.limo/#/p/${newPost.subplebbitAddress})`;
             const markupButtons = [
                 [
@@ -54,7 +58,6 @@ async function polling(
                 ],
                 [
                     Markup.button.callback("Upvote", "upvote"),
-                    Markup.button.callback("Remove vote", "removeVote"),
                     Markup.button.callback("Downvote", "downvote"),
                 ],
             ];
@@ -153,10 +156,13 @@ const subs = [
     "bitcoinbrothers.eth",
     "💩posting.eth",
     "plebbrothers.eth",
+    "ripmy.eth",
+    "technopleb.eth",
 ];
 export function startPlebbitFeedBot(
     tgBotInstance: Telegraf<Scenes.WizardContext>
 ) {
+    log.info("Starting plebbit feed bot");
     for (const sub of subs) {
         polling(sub, tgBotInstance);
     }
