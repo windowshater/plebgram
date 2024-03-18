@@ -2,7 +2,7 @@
 
 # plebgram
 
-The **plebgram** project consists of a [Telegram bot](https://t.me/plebgrambot) to handle subplebbit interactions on telegram. It also work as a feed for new posts from the subplebbits [@plebbitfeed](https://t.me/plebbitfeed).
+The **plebgram** project consists of a [Telegram bot](https://t.me/plebgrambot) to handle subplebbit interactions on telegram. It also work as a feed for new posts from the subplebbits [@plebgram](https://t.me/plebgram).
 
 ## Installation and local configuration
 
