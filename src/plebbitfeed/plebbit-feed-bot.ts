@@ -57,8 +57,8 @@ async function polling(
                     ),
                 ],
                 [
-                    Markup.button.callback("Upvote", "upvote"),
-                    Markup.button.callback("Downvote", "downvote"),
+                    Markup.button.callback("+1", "upvote"),
+                    Markup.button.callback("-1", "downvote"),
                 ],
             ];
 

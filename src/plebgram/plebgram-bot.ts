@@ -9,6 +9,7 @@ import Plebbit from "@plebbit/plebbit-js";
 import Vote from "@plebbit/plebbit-js/dist/node/vote.js";
 import { message } from "telegraf/filters";
 import { inspect } from "util";
+import Jimp from "jimp";
 const plebbit = await Plebbit({
     ipfsGatewayUrls: ["https://rannithepleb.com/api/v0"],
     ipfsHttpClientsOptions: [
@@ -25,13 +26,12 @@ const plebbitService = new PlebbitService();
 
 const pendingVotes: { [key: string]: { vote: Vote; image: string }[] } = {};
 
-const onUpvote = async (ctx: any, vote: 1 | -1) => {
+const onVote = async (ctx: any, vote: 1 | -1) => {
+    log.info(inspect(pendingVotes, false, 1));
     const signer = await getSignerFromTelgramUserId(`${ctx.from!.id}`);
     const [sub, post] = getSubPost(ctx.update.callback_query.message);
     if (!signer) {
-        ctx.answerCbQuery(
-            "User not registered. Go to @plebgrambot to register"
-        );
+        ctx.answerCbQuery("⚠️⚠️⚠️ start @plebgrambot ⚠️⚠️⚠️");
         return;
     }
     const newVote = await plebbit.createVote({
@@ -99,10 +99,16 @@ const sendChallengeMessage = async (
     log.info("Pending votes: ", pendingVotesLength);
     const imageData = pendingVotes[userId][0].image.split(";base64,").pop();
     const imageBuffer = Buffer.from(imageData!, "base64");
+    const image = await Jimp.read(imageBuffer);
+    const boxedImage = new Jimp(350, 350, 0xffffffff);
+    const x = (350 - image.bitmap.width) / 2;
+    const y = (350 - image.bitmap.height) / 2;
+    boxedImage.composite(image, x, y);
+    const boxedBuffer = await boxedImage.getBufferAsync(Jimp.MIME_JPEG);
     await plebbitFeedTgBot.telegram.sendPhoto(
         userId,
         {
-            source: imageBuffer,
+            source: boxedBuffer,
         },
         {
             caption: `You have ${pendingVotesLength} pending votes. Please reply with the answer of the challenge`,
@@ -114,6 +120,7 @@ const sendChallengeVerificationMessage = async (
     challengeVerification: any,
     vote: Vote
 ) => {
+    log.info(inspect("Verifying challenge: ", challengeVerification, 2, false));
     if (!challengeVerification.challengeSuccess) {
         plebbitFeedTgBot.telegram.sendMessage(
             userId,
@@ -221,22 +228,24 @@ This process cannot be undone for now.`
     bot.use(stage.middleware());
     log.info("using middleware");
     // TODO: refactor this
-    bot.action("upvote", async (ctx) => {
+    bot.action(/.+/, async (ctx) => {
+        const vote = ctx.match[0] === "upvote" ? 1 : -1;
         const user = await isUserRegistered(`${ctx.from!.id}`);
         log.warn("User ", user, " is upvoting");
         try {
             await ctx.answerCbQuery(
                 user
                     ? "Sending vote, please check @plebgrambot"
-                    : `Error on ${ctx.match[0]}. You are not registered yet. Please go to @plebgrambot to register`
+                    : `⚠️⚠️⚠️ start @plebgrambot ⚠️⚠️⚠️`
             );
             if (user) {
-                await onUpvote(ctx, 1);
+                await onVote(ctx, vote);
             }
         } catch (e) {
             log.error(e);
         }
     });
+
     bot.command("login", async (ctx) => {
         log.info(ctx.message.from.username + " asked for login");
         if (await isUserRegistered(`${ctx.message.chat.id}`)) {
