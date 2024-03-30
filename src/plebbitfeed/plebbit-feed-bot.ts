@@ -57,8 +57,8 @@ async function polling(
                     ),
                 ],
                 [
-                    Markup.button.callback("+1", "upvote"),
                     Markup.button.callback("-1", "downvote"),
+                    Markup.button.callback("+1", "upvote"),
                 ],
             ];
 
@@ -135,7 +135,7 @@ function loadOldPosts() {
     });
 }
 // TODO: load subs from the git json
-const subs = [
+const subs: any = [
     "monarkia.eth",
     "weaponized-autism.eth",
     "plebtoken.eth",

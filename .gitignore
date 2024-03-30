@@ -5,3 +5,4 @@ bun.lockb
 dist
 .plebbit
 yarn.lock
+deploy.sh
