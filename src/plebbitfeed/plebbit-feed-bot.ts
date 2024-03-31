@@ -48,7 +48,8 @@ async function polling(
                     const truncated = postData.title.substring(0, 900);
                     postData.title =
                         truncated.substring(0, truncated.length - 3) + "...";
-                    postData.content = "";
+                    postData.content =
+                        postData.content.substring(0, 900) + "...";
                 } else {
                     const truncated = postData.content.substring(
                         0,
@@ -58,7 +59,8 @@ async function polling(
                         truncated.substring(0, truncated.length - 3) + "...";
                 }
             }
-            const captionMessage = `*${postData.title}*\n${postData.content}\n\nSubplebbit: [${newPost.subplebbitAddress}](https://plebchan.eth.limo/#/p/${newPost.subplebbitAddress})`;
+            const captionMessage = `*${postData.title}*\n${postData.content}\n\nSubplebbit: [${newPost.subplebbitAddress}](https://plebchan.eth.limo/#/p/${newPost.subplebbitAddress})
+${newPost.author.address.includes(".") ? "Author: " + newPost.author.address : ""}`;
             const markupButtons = [
                 [
                     Markup.button.url(
