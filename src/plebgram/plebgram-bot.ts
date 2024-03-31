@@ -18,7 +18,7 @@ const plebbit = await Plebbit({
     ],
 });
 plebbit.on("error", (err) => {
-    log.error(err);
+    log.error(err.details);
 });
 
 const userService = new UserService();

@@ -5,27 +5,17 @@ import { log } from "../index.js";
 
 const historyCidsFile = "history.json";
 let processedCids: string[] = [];
-loadOldPosts();
 
 async function polling(
     address: string,
-    tgBotInstance: Telegraf<Scenes.WizardContext>
+    tgBotInstance: Telegraf<Scenes.WizardContext>,
+    plebbit: any
 ) {
-    if (!process.env.FEED_BOT_CHAT || !process.env.FEED_BOT_CHAT) {
-        throw new Error("FEED_BOT_CHAT or BOT_TOKEN not set");
-    }
-    const plebbit = await Plebbit({
-        ipfsGatewayUrls: ["https://rannithepleb.com/api/v0"],
-        ipfsHttpClientsOptions: ["http://localhost:5001/api/v0"],
-    });
-    plebbit.on("error", (error) => {
-        log.error(error);
-    });
     const sub = await plebbit.createSubplebbit({
         address: address,
     });
     // will check if its a new post by looking the history file to send a new message
-    sub.on("update", async (updatedSubplebbitInstance) => {
+    sub.on("update", async (updatedSubplebbitInstance: any) => {
         loadOldPosts();
         if (
             updatedSubplebbitInstance.lastPostCid &&
@@ -175,11 +165,22 @@ const subs: any = [
     "ripmy.eth",
     "technopleb.eth",
 ];
-export function startPlebbitFeedBot(
+export async function startPlebbitFeedBot(
     tgBotInstance: Telegraf<Scenes.WizardContext>
 ) {
     log.info("Starting plebbit feed bot");
+    loadOldPosts();
+    const plebbit = await Plebbit({
+        ipfsGatewayUrls: ["https://rannithepleb.com/api/v0"],
+        ipfsHttpClientsOptions: ["http://localhost:5001/api/v0"],
+    });
+    plebbit.on("error", (error) => {
+        log.error(error);
+    });
+    if (!process.env.FEED_BOT_CHAT || !process.env.FEED_BOT_CHAT) {
+        throw new Error("FEED_BOT_CHAT or BOT_TOKEN not set");
+    }
     for (const sub of subs) {
-        polling(sub, tgBotInstance);
+        polling(sub, tgBotInstance, plebbit);
     }
 }
