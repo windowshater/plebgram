@@ -34,6 +34,10 @@ const onVote = async (ctx: any, vote: 1 | -1) => {
         ctx.answerCbQuery("⚠️⚠️⚠️ start @plebgrambot ⚠️⚠️⚠️");
         return;
     }
+    plebbitFeedTgBot.telegram.sendMessage(
+        ctx.from.id!,
+        "Creating vote request..."
+    );
     const newVote = await plebbit.createVote({
         signer: signer,
         vote: vote,

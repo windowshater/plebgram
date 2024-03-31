@@ -43,7 +43,21 @@ async function polling(
                 cid: newPost.cid,
                 subplebbitAddress: newPost.subplebbitAddress,
             };
-            //TODO: telegram has a 1024 character limit, need to split it
+            if (postData.title.length + postData.content.length > 900) {
+                if (postData.title.length > 900) {
+                    const truncated = postData.title.substring(0, 900);
+                    postData.title =
+                        truncated.substring(0, truncated.length - 3) + "...";
+                    postData.content = "";
+                } else {
+                    const truncated = postData.content.substring(
+                        0,
+                        900 - postData.title.length
+                    );
+                    postData.content =
+                        truncated.substring(0, truncated.length - 3) + "...";
+                }
+            }
             const captionMessage = `*${postData.title}*\n${postData.content}\n\nSubplebbit: [${newPost.subplebbitAddress}](https://plebchan.eth.limo/#/p/${newPost.subplebbitAddress})`;
             const markupButtons = [
                 [
