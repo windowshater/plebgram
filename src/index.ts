@@ -4,6 +4,7 @@ import { client } from "./config/db.js";
 import { Scenes, Telegraf } from "telegraf";
 import { startPlebgramBot } from "./plebgram/plebgram-bot.js";
 import { Logger } from "tslog";
+import Plebbit from "@plebbit/plebbit-js";
 
 export const log = new Logger();
 dotenv.config();
@@ -15,6 +16,10 @@ if (!process.env.BOT_TOKEN) {
 export const plebbitFeedTgBot = new Telegraf<Scenes.WizardContext>(
     process.env.BOT_TOKEN!
 );
+export const plebbit = await Plebbit({
+    ipfsGatewayUrls: ["https://rannithepleb.com/api/v0"],
+    ipfsHttpClientsOptions: ["http://localhost:5001/api/v0"],
+});
 
 plebbitFeedTgBot.launch();
 

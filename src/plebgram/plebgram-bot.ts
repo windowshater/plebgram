@@ -1,22 +1,15 @@
-import { Markup, Scenes, Telegraf, session } from "telegraf";
+import { Scenes, Telegraf, session } from "telegraf";
 import { UserService } from "../services/user.service.js";
 import { Redis } from "@telegraf/session/redis";
 import { PlebbitService } from "../services/plebbit.service.js";
 import { User } from "../models/user.js";
 import { Signer } from "@plebbit/plebbit-js/dist/node/signer/index.js";
-import { log, plebbitFeedTgBot } from "../index.js";
-import Plebbit from "@plebbit/plebbit-js";
+import { log, plebbit, plebbitFeedTgBot } from "../index.js";
 import Vote from "@plebbit/plebbit-js/dist/node/vote.js";
 import { message } from "telegraf/filters";
 import { inspect } from "util";
 import Jimp from "jimp";
-const plebbit = await Plebbit({
-    ipfsGatewayUrls: ["https://rannithepleb.com/api/v0"],
-    ipfsHttpClientsOptions: [
-        "http://localhost:5001/api/v0",
-        "https://pubsubprovider.xyz/api/v0",
-    ],
-});
+
 plebbit.on("error", (err) => {
     log.error(err.details);
 });

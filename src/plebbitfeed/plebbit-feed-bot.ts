@@ -1,186 +1,225 @@
-import Plebbit from "@plebbit/plebbit-js";
-import fs from "fs";
+import * as fs from "fs";
 import { Markup, Scenes, Telegraf } from "telegraf";
-import { log } from "../index.js";
+import { log, plebbit } from "../index.js";
+import { Plebbit as PlebbitType } from "@plebbit/plebbit-js/dist/node/plebbit.js";
+import fetch from "node-fetch";
+import { RemoteSubplebbit } from "@plebbit/plebbit-js/dist/node/subplebbit/remote-subplebbit.js";
+import PQueue from "p-queue";
 
+const queue = new PQueue({ concurrency: 1 });
 const historyCidsFile = "history.json";
-let processedCids: string[] = [];
+let processedCids: any = {};
 
-async function polling(
+async function scrollPosts(
     address: string,
     tgBotInstance: Telegraf<Scenes.WizardContext>,
-    plebbit: any
+    plebbit: PlebbitType,
+    subInstance: RemoteSubplebbit
 ) {
-    const sub = await plebbit.createSubplebbit({
-        address: address,
-    });
-    // will check if its a new post by looking the history file to send a new message
-    sub.on("update", async (updatedSubplebbitInstance: any) => {
-        loadOldPosts();
-        if (
-            updatedSubplebbitInstance.lastPostCid &&
-            isNewPost(updatedSubplebbitInstance.lastPostCid)
-        ) {
-            processNewPost(updatedSubplebbitInstance.lastPostCid);
-            const newPost = await plebbit.getComment(
-                updatedSubplebbitInstance.lastPostCid
-            );
-            const postData = {
-                title: newPost.title ? newPost.title : "",
-                content: newPost.content ? newPost.content : "",
-                postCid: newPost.postCid,
-                link: newPost.link,
-                cid: newPost.cid,
-                subplebbitAddress: newPost.subplebbitAddress,
-            };
-            if (postData.title.length + postData.content.length > 900) {
-                if (postData.title.length > 900) {
-                    const truncated = postData.title.substring(0, 900);
-                    postData.title =
-                        truncated.substring(0, truncated.length - 3) + "...";
-                    postData.content =
-                        postData.content.substring(0, 900) + "...";
-                } else {
-                    const truncated = postData.content.substring(
-                        0,
-                        900 - postData.title.length
-                    );
-                    postData.content =
-                        truncated.substring(0, truncated.length - 3) + "...";
-                }
-            }
-            const captionMessage = `*${postData.title}*\n${postData.content}\n\nSubplebbit: [${newPost.subplebbitAddress}](https://plebchan.eth.limo/#/p/${newPost.subplebbitAddress})
-${newPost.author.address.includes(".") ? "Author: " + newPost.author.address : ""}`;
-            const markupButtons = [
-                [
-                    Markup.button.url(
-                        "View on Seedit",
-                        `https://seedit.eth.limo/#/p/${newPost.subplebbitAddress}/c/${newPost.postCid}`
-                    ),
-                    Markup.button.url(
-                        "View on Plebchan",
-                        `https://plebchan.eth.limo/#/p/${newPost.subplebbitAddress}/c/${newPost.postCid}`
-                    ),
-                ],
-                [
-                    Markup.button.callback("-1", "downvote"),
-                    Markup.button.callback("+1", "upvote"),
-                ],
-            ];
+    log.info("Checking sub: ", address);
+    try {
+        log.info("Sub loaded");
+        let currentPostCid = subInstance.lastPostCid;
+        let counter = 0;
+        while (currentPostCid && counter < 20) {
+            counter += 1;
+            if (!processedCids.Cids.includes(currentPostCid)) {
+                processedCids.Cids.push(currentPostCid);
+                const newPost = await plebbit.getComment(currentPostCid);
+                const postData = {
+                    title: newPost.title ? newPost.title : "",
+                    content: newPost.content ? newPost.content : "",
+                    postCid: newPost.postCid,
+                    link: newPost.link,
+                    cid: newPost.cid,
+                    subplebbitAddress: newPost.subplebbitAddress,
+                };
+                postData.title = postData.title
+                    .replace(/&/g, "&amp;")
+                    .replace(/</g, "&lt;")
+                    .replace(/>/g, "&gt;");
 
-            if (postData.link) {
-                tgBotInstance.telegram
-                    .sendPhoto(process.env.FEED_BOT_CHAT!, postData.link, {
-                        parse_mode: "Markdown",
-                        caption: captionMessage,
-                        ...Markup.inlineKeyboard(markupButtons),
-                    })
-                    .catch((error: any) => {
-                        log.error(error);
-                        // if the link is not a valid image, send the caption
+                postData.content = postData.content
+                    .replace(/&/g, "&amp;")
+                    .replace(/</g, "&lt;")
+                    .replace(/>/g, "&gt;");
+                if (postData.title.length + postData.content.length > 900) {
+                    if (postData.title.length > 900) {
+                        const truncated = postData.title.substring(0, 900);
+                        postData.title =
+                            truncated.substring(0, truncated.length - 3) +
+                            "...";
+                        postData.content =
+                            postData.content.substring(0, 900) + "...";
+                    } else {
+                        const truncated = postData.content.substring(
+                            0,
+                            900 - postData.title.length
+                        );
+                        postData.content =
+                            truncated.substring(0, truncated.length - 3) +
+                            "...";
+                    }
+                }
+                const captionMessage = `<b>${postData.title}</b>\n${postData.content}\n\nSubmited on <a href="https://plebchan.eth.limo/#/p/${newPost.subplebbitAddress}">p/${newPost.subplebbitAddress}</a> by ${newPost.author.address.includes(".") ? newPost.author.address : newPost.author.shortAddress}`;
+                const markupButtons = [
+                    [
+                        Markup.button.url(
+                            "View on Seedit",
+                            `https://seedit.eth.limo/#/p/${newPost.subplebbitAddress}/c/${newPost.postCid}`
+                        ),
+                        Markup.button.url(
+                            "View on Plebchan",
+                            `https://plebchan.eth.limo/#/p/${newPost.subplebbitAddress}/c/${newPost.postCid}`
+                        ),
+                    ],
+                    [
+                        Markup.button.callback("-1", "downvote"),
+                        Markup.button.callback("+1", "upvote"),
+                    ],
+                ];
+
+                // random 1 - 10 seconds wait to avoid rate limiting
+
+                if (postData.link) {
+                    await queue.add(async () => {
+                        tgBotInstance.telegram
+                            .sendPhoto(
+                                process.env.FEED_BOT_CHAT!,
+                                postData.link!,
+                                {
+                                    parse_mode: "HTML",
+                                    caption: captionMessage,
+                                    ...Markup.inlineKeyboard(markupButtons),
+                                }
+                            )
+                            .catch((error: any) => {
+                                log.error(error);
+                                // if the link is not a valid image, send the caption
+                                tgBotInstance.telegram.sendMessage(
+                                    process.env.FEED_BOT_CHAT!,
+                                    captionMessage,
+                                    {
+                                        parse_mode: "HTML",
+
+                                        ...Markup.inlineKeyboard(markupButtons),
+                                    }
+                                );
+                            });
+
+                        await new Promise((resolve) =>
+                            setTimeout(resolve, 6 * 1000)
+                        );
+                    });
+                } else {
+                    await queue.add(async () => {
                         tgBotInstance.telegram.sendMessage(
                             process.env.FEED_BOT_CHAT!,
                             captionMessage,
                             {
-                                parse_mode: "Markdown",
-
+                                parse_mode: "HTML",
                                 ...Markup.inlineKeyboard(markupButtons),
                             }
                         );
+
+                        await new Promise((resolve) =>
+                            setTimeout(resolve, 6 * 1000)
+                        );
                     });
+                }
+                log.info("New post: ", postData);
+                currentPostCid = newPost.previousCid;
+                await new Promise((resolve) => setTimeout(resolve, 10 * 1000));
             } else {
-                tgBotInstance.telegram.sendMessage(
-                    process.env.FEED_BOT_CHAT!,
-                    captionMessage,
-                    {
-                        parse_mode: "Markdown",
-                        ...Markup.inlineKeyboard(markupButtons),
-                    }
-                );
+                log.info("Already processsed: ", currentPostCid);
+                const post = await plebbit.getComment(currentPostCid);
+                currentPostCid = post.previousCid;
             }
-
-            log.info("New post: ", postData);
-        } else {
-            log.info(
-                "Post " + updatedSubplebbitInstance.lastPostCid,
-                " already processed"
-            );
         }
-    });
-    sub.update();
+    } catch (e) {
+        log.error(e);
+    }
 }
-function isNewPost(postCid: string) {
-    return !processedCids.includes(postCid);
-}
-function processNewPost(postCid: string) {
-    processedCids.push(postCid);
-    fs.writeFile(
-        historyCidsFile,
-        JSON.stringify({ Cids: processedCids }),
-        "utf8",
-        (err) => {
-            if (err) {
-                log.error("Error writing to file:", err);
-                return;
-            }
 
-            log.info("Data has been written to the file.");
-        }
-    );
-}
 function loadOldPosts() {
-    fs.readFile(historyCidsFile, "utf8", (err, data) => {
-        if (err) {
-            log.error("Error reading file:", err);
-            return;
-        }
-        if (!!data) {
-            const jsonData = JSON.parse(data);
-            processedCids = jsonData.Cids;
-        }
-    });
+    try {
+        const data = fs.readFileSync(historyCidsFile, "utf8");
+        processedCids = JSON.parse(data);
+    } catch (error) {
+        log.error(error);
+        throw new Error();
+    }
 }
-// TODO: load subs from the git json
-const subs: any = [
-    "monarkia.eth",
-    "weaponized-autism.eth",
-    "plebtoken.eth",
-    "pleblore.eth",
-    "politically-incorrect.eth",
-    "business-and-finance.eth",
-    "movies-tv-anime.eth",
-    "plebmusic.eth",
-    "videos-livestreams-podcasts.eth",
-    "health-nutrition-science.eth",
-    "censorship-watch.eth",
-    "reddit-screenshots.eth",
-    "plebbit-italy.eth",
-    "mktwallet.eth",
-    "brasilandia.eth",
-    "plebcouncil.eth",
-    "plebpiracy.eth",
-    "bitcoinbrothers.eth",
-    "💩posting.eth",
-    "plebbrothers.eth",
-    "ripmy.eth",
-    "technopleb.eth",
-];
+function savePosts() {
+    try {
+        fs.writeFileSync(
+            historyCidsFile,
+            JSON.stringify(processedCids, null, 2),
+            "utf8"
+        );
+    } catch (error) {
+        log.error("Error saving json file");
+    }
+}
+
 export async function startPlebbitFeedBot(
     tgBotInstance: Telegraf<Scenes.WizardContext>
 ) {
     log.info("Starting plebbit feed bot");
-    loadOldPosts();
-    const plebbit = await Plebbit({
-        ipfsGatewayUrls: ["https://rannithepleb.com/api/v0"],
-        ipfsHttpClientsOptions: ["http://localhost:5001/api/v0"],
-    });
+
     plebbit.on("error", (error) => {
         log.error(error);
     });
     if (!process.env.FEED_BOT_CHAT || !process.env.FEED_BOT_CHAT) {
         throw new Error("FEED_BOT_CHAT or BOT_TOKEN not set");
     }
-    for (const sub of subs) {
-        polling(sub, tgBotInstance, plebbit);
+    while (true) {
+        loadOldPosts();
+        console.log("Length of loaded posts: ", processedCids.Cids.length);
+        const subs = await fetchSubs();
+        await Promise.all(
+            subs.map(async (subAddress: string) => {
+                try {
+                    log.info("Loading sub ", subAddress);
+                    const startTime = performance.now();
+                    const subInstance = await plebbit.getSubplebbit(subAddress);
+                    const endTime = performance.now();
+                    log.info("Time to load sub: ", endTime - startTime);
+
+                    await scrollPosts(
+                        subInstance.address,
+                        tgBotInstance,
+                        plebbit,
+                        subInstance
+                    );
+                } catch (e) {
+                    log.info(e);
+                }
+            })
+        );
+        log.info("saving new posts");
+        savePosts();
+        log.info("Waiting for next cycle of fetching");
+
+        await new Promise((resolve) => setTimeout(resolve, 60 * 1000));
     }
+}
+
+async function fetchSubs() {
+    let subs = [];
+    try {
+        const response = await fetch(
+            "https://raw.githubusercontent.com/plebbit/temporary-default-subplebbits/master/multisub.json"
+        );
+        if (!response.ok) {
+            throw new Error("Failed to fetch subs");
+        } else {
+            const data: any = await response.json();
+
+            subs = data.subplebbits.map((obj: any) => obj.address);
+        }
+    } catch (error) {
+        log.error("Error:", error);
+    }
+    return subs;
 }
