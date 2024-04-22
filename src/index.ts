@@ -12,23 +12,27 @@ dotenv.config();
 if (!process.env.BOT_TOKEN) {
     throw new Error("BOT_TOKEN is not set");
 }
-
 export const plebbitFeedTgBot = new Telegraf<Scenes.WizardContext>(
     process.env.BOT_TOKEN!
 );
+
 export const plebbit = await Plebbit({
     ipfsGatewayUrls: ["https://rannithepleb.com/api/v0"],
     ipfsHttpClientsOptions: ["http://localhost:5001/api/v0"],
 });
-
-plebbitFeedTgBot.launch();
+plebbit.on("error", (error) => {
+    log.error(error.details);
+});
 
 const start = async () => {
     try {
+        plebbitFeedTgBot.launch();
         await client.connect();
         log.info("Connected to database");
-        startPlebbitFeedBot(plebbitFeedTgBot);
-        startPlebgramBot(plebbitFeedTgBot);
+        await Promise.all([
+            startPlebbitFeedBot(plebbitFeedTgBot),
+            startPlebgramBot(plebbitFeedTgBot),
+        ]);
     } catch (error) {
         log.error(error);
     }

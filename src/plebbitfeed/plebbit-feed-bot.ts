@@ -5,6 +5,7 @@ import { Plebbit as PlebbitType } from "@plebbit/plebbit-js/dist/node/plebbit.js
 import fetch from "node-fetch";
 import { RemoteSubplebbit } from "@plebbit/plebbit-js/dist/node/subplebbit/remote-subplebbit.js";
 import PQueue from "p-queue";
+import { rejects } from "assert";
 
 const queue = new PQueue({ concurrency: 1 });
 const historyCidsFile = "history.json";
@@ -79,8 +80,6 @@ async function scrollPosts(
                     ],
                 ];
 
-                // random 1 - 10 seconds wait to avoid rate limiting
-
                 if (postData.link) {
                     await queue.add(async () => {
                         tgBotInstance.telegram
@@ -93,45 +92,84 @@ async function scrollPosts(
                                     ...Markup.inlineKeyboard(markupButtons),
                                 }
                             )
+                            .then(async () => {
+                                await new Promise((resolve) =>
+                                    setTimeout(resolve, 1 * 1000)
+                                );
+                                tgBotInstance.telegram.sendMessage(
+                                    process.env.FEED_BOT_CHAT!,
+                                    `<a href="https://plebchan.eth.limo/#/p/${newPost.subplebbitAddress}/c/${newPost.postCid}">💬</a>`,
+                                    {
+                                        parse_mode: "HTML",
+                                    }
+                                );
+                            })
                             .catch((error: any) => {
                                 log.error(error);
                                 // if the link is not a valid image, send the caption
+                                tgBotInstance.telegram
+                                    .sendMessage(
+                                        process.env.FEED_BOT_CHAT!,
+                                        captionMessage,
+                                        {
+                                            parse_mode: "HTML",
+
+                                            ...Markup.inlineKeyboard(
+                                                markupButtons
+                                            ),
+                                        }
+                                    )
+                                    .then(async () => {
+                                        await new Promise((resolve) =>
+                                            setTimeout(resolve, 1 * 1000)
+                                        );
+                                        tgBotInstance.telegram.sendMessage(
+                                            process.env.FEED_BOT_CHAT!,
+                                            `<a href="https://plebchan.eth.limo/#/p/${newPost.subplebbitAddress}/c/${newPost.postCid}">💬</a>`,
+                                            {
+                                                parse_mode: "HTML",
+                                            }
+                                        );
+                                    });
+                            });
+
+                        await new Promise((resolve) =>
+                            setTimeout(resolve, 10 * 1000)
+                        );
+                    });
+                } else {
+                    await queue.add(async () => {
+                        tgBotInstance.telegram
+                            .sendMessage(
+                                process.env.FEED_BOT_CHAT!,
+                                captionMessage,
+                                {
+                                    parse_mode: "HTML",
+                                    ...Markup.inlineKeyboard(markupButtons),
+                                }
+                            )
+                            .then(async () => {
+                                await new Promise((resolve) =>
+                                    setTimeout(resolve, 2 * 1000)
+                                );
                                 tgBotInstance.telegram.sendMessage(
                                     process.env.FEED_BOT_CHAT!,
-                                    captionMessage,
+                                    `<a href="https://plebchan.eth.limo/#/p/${newPost.subplebbitAddress}/c/${newPost.postCid}">💬</a>`,
                                     {
                                         parse_mode: "HTML",
-
-                                        ...Markup.inlineKeyboard(markupButtons),
                                     }
                                 );
                             });
 
                         await new Promise((resolve) =>
-                            setTimeout(resolve, 6 * 1000)
-                        );
-                    });
-                } else {
-                    await queue.add(async () => {
-                        tgBotInstance.telegram.sendMessage(
-                            process.env.FEED_BOT_CHAT!,
-                            captionMessage,
-                            {
-                                parse_mode: "HTML",
-                                ...Markup.inlineKeyboard(markupButtons),
-                            }
-                        );
-
-                        await new Promise((resolve) =>
-                            setTimeout(resolve, 6 * 1000)
+                            setTimeout(resolve, 10 * 1000)
                         );
                     });
                 }
                 log.info("New post: ", postData);
                 currentPostCid = newPost.previousCid;
-                await new Promise((resolve) => setTimeout(resolve, 10 * 1000));
             } else {
-                log.info("Already processsed: ", currentPostCid);
+                //log.info("Already processsed: ", currentPostCid);
                 const post = await plebbit.getComment(currentPostCid);
                 currentPostCid = post.previousCid;
             }
@@ -139,6 +177,7 @@ async function scrollPosts(
     } catch (e) {
         log.error(e);
     }
+    log.info("Finished on ", address);
 }
 
 function loadOldPosts() {
@@ -167,9 +206,6 @@ export async function startPlebbitFeedBot(
 ) {
     log.info("Starting plebbit feed bot");
 
-    plebbit.on("error", (error) => {
-        log.error(error);
-    });
     if (!process.env.FEED_BOT_CHAT || !process.env.FEED_BOT_CHAT) {
         throw new Error("FEED_BOT_CHAT or BOT_TOKEN not set");
     }
@@ -182,26 +218,54 @@ export async function startPlebbitFeedBot(
                 try {
                     log.info("Loading sub ", subAddress);
                     const startTime = performance.now();
-                    const subInstance = await plebbit.getSubplebbit(subAddress);
+                    const subInstance: any = await Promise.race([
+                        plebbit.getSubplebbit(subAddress),
+                        new Promise((_, reject) => {
+                            setTimeout(
+                                () => {
+                                    reject(
+                                        new Error(
+                                            "Operation timed out after 5 minutes"
+                                        )
+                                    );
+                                },
+                                5 * 60 * 1000
+                            );
+                        }),
+                    ]);
                     const endTime = performance.now();
                     log.info("Time to load sub: ", endTime - startTime);
-
-                    await scrollPosts(
-                        subInstance.address,
-                        tgBotInstance,
-                        plebbit,
-                        subInstance
-                    );
+                    if (subInstance.address) {
+                        await Promise.race([
+                            scrollPosts(
+                                subInstance.address,
+                                tgBotInstance,
+                                plebbit,
+                                subInstance
+                            ),
+                            new Promise((_, reject) => {
+                                setTimeout(
+                                    () => {
+                                        reject(
+                                            new Error(
+                                                "Timedout after 6 minutes of post crawling on " +
+                                                    subInstance.address
+                                            )
+                                        );
+                                    },
+                                    6 * 60 * 1000
+                                );
+                            }),
+                        ]);
+                    }
                 } catch (e) {
                     log.info(e);
+                    log.info(subAddress);
                 }
             })
         );
         log.info("saving new posts");
         savePosts();
-        log.info("Waiting for next cycle of fetching");
-
-        await new Promise((resolve) => setTimeout(resolve, 60 * 1000));
     }
 }
 

@@ -1,4 +1,4 @@
-import { Scenes, Telegraf, session } from "telegraf";
+import { Markup, Scenes, Telegraf, session } from "telegraf";
 import { UserService } from "../services/user.service.js";
 import { Redis } from "@telegraf/session/redis";
 import { PlebbitService } from "../services/plebbit.service.js";
@@ -9,28 +9,135 @@ import Vote from "@plebbit/plebbit-js/dist/node/vote.js";
 import { message } from "telegraf/filters";
 import { inspect } from "util";
 import Jimp from "jimp";
-
-plebbit.on("error", (err) => {
-    log.error(err.details);
-});
+import { MessageService } from "../services/message.service.js";
+import { Comment } from "@plebbit/plebbit-js/dist/node/comment.js";
+import Author from "@plebbit/plebbit-js/dist/node/author.js";
 
 const userService = new UserService();
+const messageService = new MessageService();
 const plebbitService = new PlebbitService();
 
-const pendingVotes: { [key: string]: { vote: Vote; image: string }[] } = {};
+const pendings: {
+    [key: string]: { pendingObject: Vote | Comment; image: string }[];
+} = {};
+const onComment = async (ctx: any) => {
+    log.info(inspect(pendings, false, 1));
+    const signer = await getSignerFromTelgramUserId(`${ctx.message.from!.id}`);
+    if (!signer) {
+        return;
+    }
+
+    let replyCid = "";
+    let sub = "";
+    let replyToReply = "";
+    if (ctx.message.reply_to_message.hasOwnProperty("entities")) {
+        log.info("message directly pointing to post");
+        log.info(ctx.message.reply_to_message.entities);
+        [sub, replyCid] = getSubPost(
+            ctx.message.reply_to_message.entities[0].url
+        );
+    } else {
+        // look in the reply thread if the original message is a post in plebgram
+        let repliedPost = await messageService.getMessage(
+            `${ctx.message.reply_to_message.message_id}`
+        );
+        log.info("loaded message ", repliedPost.message_id);
+        while (repliedPost) {
+            if (repliedPost.hasOwnProperty("cid")) {
+                replyToReply = repliedPost.cid;
+            }
+            // check if it is replying to something
+            if (repliedPost.hasOwnProperty("reply_to_message")) {
+                if (repliedPost.reply_to_message.hasOwnProperty("entities")) {
+                    log.info("original post found");
+                    [sub, replyCid] = getSubPost(
+                        repliedPost.reply_to_message.entities[0].url
+                    );
+                    break;
+                } else {
+                    // crawling to upper message
+                    repliedPost = await messageService.getMessage(
+                        `${repliedPost.reply_to_message.message_id}`
+                    );
+
+                    log.info("loaded message ", repliedPost.message_id);
+                }
+            } else {
+                log.warn("original post not found, message ignored");
+                return;
+            }
+        }
+    }
+    log.info("Post cid captured, lets create the comment");
+    log.info(replyCid);
+    plebbitFeedTgBot.telegram.sendMessage(ctx.from.id!, "Creating request");
+    const newComment = await plebbit.createComment({
+        signer: signer,
+        parentCid: replyToReply != "" ? replyToReply : replyCid,
+        content: `${ctx.message.text}`,
+        subplebbitAddress: sub,
+        author: {
+            address: signer.address,
+            shortAddress: signer.shortAddress,
+        },
+    });
+    newComment.on("challenge", (challengeMessage) => {
+        log.info("Challenge received");
+        sendChallengeMessage(
+            `${ctx.from!.id}`,
+            challengeMessage.challenges[0].challenge,
+            newComment,
+            false
+        );
+    });
+    newComment.on(
+        "challengeverification",
+        async (challengeVerification: any) => {
+            log.info("Verifying challenge answer");
+            sendChallengeVerificationMessage(
+                `${ctx.from!.id}`,
+                challengeVerification,
+                newComment,
+                ctx
+            );
+            if (challengeVerification.challengeSuccess) {
+                const message = await messageService.getMessage(
+                    `${ctx.message.message_id}`
+                );
+                message.cid = challengeVerification.publication.cid;
+                await messageService.editMessage(message);
+            }
+        }
+    );
+    newComment.on("error", (err) => {
+        // this should destroy the vote if no challenge is received
+        sendErrorMessage(`${ctx.from!.id}`, err);
+        newComment.stop().catch((e) => log.error(e));
+        newComment.removeAllListeners("challenge");
+        newComment.removeAllListeners("challengeverification");
+        newComment.removeAllListeners("error");
+    });
+    await newComment.publish();
+
+    //replyCid = "thisIsATest";
+    //const message = await messageService.getMessage(
+    //    `${ctx.message.message_id}`
+    //);
+    //message.cid = replyCid;
+    //await messageService.editMessage(message);
+};
 
 const onVote = async (ctx: any, vote: 1 | -1) => {
-    log.info(inspect(pendingVotes, false, 1));
+    log.info(inspect(pendings, false, 1));
     const signer = await getSignerFromTelgramUserId(`${ctx.from!.id}`);
-    const [sub, post] = getSubPost(ctx.update.callback_query.message);
+    const [sub, post] = getSubPost(
+        ctx.update.callback_query.message.reply_markup.inline_keyboard[0][1].url
+    );
     if (!signer) {
         ctx.answerCbQuery("⚠️⚠️⚠️ start @plebgrambot ⚠️⚠️⚠️");
         return;
     }
-    plebbitFeedTgBot.telegram.sendMessage(
-        ctx.from.id!,
-        "Creating vote request..."
-    );
+    plebbitFeedTgBot.telegram.sendMessage(ctx.from.id!, "Creating request...");
     const newVote = await plebbit.createVote({
         signer: signer,
         vote: vote,
@@ -46,12 +153,13 @@ const onVote = async (ctx: any, vote: 1 | -1) => {
             false
         );
     });
-    newVote.on("challengeverification", (challengeVerification) => {
+    newVote.on("challengeverification", (challengeVerification: any) => {
         log.info("Verifying challenge answer");
         sendChallengeVerificationMessage(
             `${ctx.from!.id}`,
             challengeVerification,
-            newVote
+            newVote,
+            ctx
         );
     });
     newVote.on("error", (err) => {
@@ -81,20 +189,25 @@ const sendErrorMessage = async (userId: string, err: any) => {
 const sendChallengeMessage = async (
     userId: string,
     challenge: string,
-    vote: Vote,
+    pendingObject: Vote | Comment,
     alreadyCounted: boolean
 ) => {
     if (alreadyCounted === false) {
-        if (pendingVotes.hasOwnProperty(userId)) {
-            pendingVotes[userId].push({ vote: vote, image: challenge });
+        if (pendings.hasOwnProperty(userId)) {
+            pendings[userId].push({
+                pendingObject: pendingObject,
+                image: challenge,
+            });
         } else {
-            pendingVotes[userId] = [{ vote: vote, image: challenge }];
+            pendings[userId] = [
+                { pendingObject: pendingObject, image: challenge },
+            ];
         }
     }
 
-    const pendingVotesLength = pendingVotes[userId].length;
-    log.info("Pending votes: ", pendingVotesLength);
-    const imageData = pendingVotes[userId][0].image.split(";base64,").pop();
+    const pendingsLength = pendings[userId].length;
+    log.info("Pendings: ", pendingsLength);
+    const imageData = pendings[userId][0].image.split(";base64,").pop();
     const imageBuffer = Buffer.from(imageData!, "base64");
     const image = await Jimp.read(imageBuffer);
     const boxedImage = new Jimp(350, 350, 0xffffffff);
@@ -102,59 +215,78 @@ const sendChallengeMessage = async (
     const y = (350 - image.bitmap.height) / 2;
     boxedImage.composite(image, x, y);
     const boxedBuffer = await boxedImage.getBufferAsync(Jimp.MIME_JPEG);
-    await plebbitFeedTgBot.telegram.sendPhoto(
-        userId,
-        {
-            source: boxedBuffer,
-        },
-        {
-            caption: `You have ${pendingVotesLength} pending votes. Please reply with the answer of the challenge`,
-        }
-    );
+    try {
+        await plebbitFeedTgBot.telegram.sendPhoto(
+            userId,
+            {
+                source: boxedBuffer,
+            },
+            {
+                caption: `You have ${pendingsLength} pending challenges. Please reply with the answer of the challenge`,
+                ...Markup.inlineKeyboard([
+                    Markup.button.callback("Cancel", "cancel"),
+                ]),
+            }
+        );
+    } catch (e: any) {
+        sendErrorMessage(userId, e.message);
+    }
 };
 const sendChallengeVerificationMessage = async (
     userId: string,
     challengeVerification: any,
-    vote: Vote
+    pendingObject: Vote | Comment,
+    ctx: any
 ) => {
+    pendingObject.stop().catch((e) => log.error(e));
+    pendingObject.removeAllListeners("challenge");
+    pendingObject.removeAllListeners("challengeverification");
+    pendingObject.removeAllListeners("error");
+    if (pendings[userId].length > 0) {
+        pendings[userId].shift();
+    }
     log.info(inspect("Verifying challenge: ", challengeVerification, 2, false));
     if (!challengeVerification.challengeSuccess) {
-        plebbitFeedTgBot.telegram.sendMessage(
-            userId,
-            "Challenge verification failed. Try again."
-        );
+        if (pendingObject instanceof Comment) {
+            plebbitFeedTgBot.telegram.sendMessage(
+                userId,
+                "Challenge verification failed. Recreating challenge..."
+            );
+            await onComment(ctx);
+        } else {
+            plebbitFeedTgBot.telegram.sendMessage(
+                userId,
+                "Challenge verification failed. Try again."
+            );
+        }
     } else {
         plebbitFeedTgBot.telegram.sendMessage(
             userId,
             "Challenge verified successfully."
         );
     }
-    vote.stop().catch((e) => log.error(e));
-    vote.removeAllListeners("challenge");
-    vote.removeAllListeners("challengeverification");
-    vote.removeAllListeners("error");
-    pendingVotes[userId].shift();
-    if (pendingVotes[userId] && pendingVotes[userId].length > 0) {
+
+    if (pendings[userId] && pendings[userId].length > 0) {
         await sendChallengeMessage(
             userId,
-            pendingVotes[userId][0].image,
-            pendingVotes[userId][0].vote,
+            pendings[userId][0].image,
+            pendings[userId][0].pendingObject,
             true
         );
     }
 };
 const handlePublishChallengeAnswer = async (userId: string, answer: string) => {
-    const vote = pendingVotes[userId][0].vote;
+    const pending = pendings[userId][0].pendingObject;
     try {
-        await vote.publishChallengeAnswers([answer]);
+        await pending.publishChallengeAnswers([answer]);
     } catch (e) {
         log.error(e);
-        if (pendingVotes[userId].length > 0) {
-            vote.stop().catch((e) => log.error(e));
-            vote.removeAllListeners("challenge");
-            vote.removeAllListeners("challengeverification");
-            vote.removeAllListeners("error");
-            pendingVotes[userId].shift();
+        if (pendings[userId].length > 0) {
+            pending.stop().catch((e) => log.error(e));
+            pending.removeAllListeners("challenge");
+            pending.removeAllListeners("challengeverification");
+            pending.removeAllListeners("error");
+            pendings[userId].shift();
         }
     }
 };
@@ -206,18 +338,18 @@ export async function isUserRegistered(
 }
 
 export async function startPlebgramBot(bot: Telegraf<Scenes.WizardContext>) {
-    bot.start(async (ctx) => {
-        log.info(ctx.message.from.username + " started the bot");
-        if (!(await isUserRegistered(`${ctx.from!.id}`))) {
-            await ctx.reply(
-                `Welcome to Plebgram. Please register first. 
-Use /register to create a new user or /login to use an existing user.
-This process cannot be undone for now.`
-            );
-        } else {
-            await ctx.reply("Welcome to Plebgram. You are already logged in");
-        }
-    });
+    //    bot.start(async (ctx) => {
+    //        log.info(ctx.message.from.username + " started the bot");
+    //        if (!(await isUserRegistered(`${ctx.from!.id}`))) {
+    //            await ctx.reply(
+    //                `Welcome to Plebgram. Please register first.
+    //Use /register to create a new user or /login to use an existing user.
+    //This process cannot be undone for now.`
+    //            );
+    //        } else {
+    //            await ctx.reply("Welcome to Plebgram. You are already logged in");
+    //        }
+    //    });
 
     const store = Redis({ url: "redis://127.0.0.1:6379" }) as any;
     bot.use(session({ store }));
@@ -226,72 +358,132 @@ This process cannot be undone for now.`
     log.info("using middleware");
     // TODO: refactor this
     bot.action(/.+/, async (ctx) => {
-        const vote = ctx.match[0] === "upvote" ? 1 : -1;
-        const user = await isUserRegistered(`${ctx.from!.id}`);
-        log.warn("User ", user, " is upvoting");
-        try {
-            await ctx.answerCbQuery(
-                user
-                    ? "Sending vote, please check @plebgrambot"
-                    : `⚠️⚠️⚠️ start @plebgrambot ⚠️⚠️⚠️`
-            );
-            if (user) {
-                await onVote(ctx, vote);
+        // destroy the pending request by pressing the cancel button
+        if (ctx.match[0] === "cancel") {
+            ctx.answerCbQuery("Destroying request...");
+            const userId = `${ctx.from.id}`;
+            if (pendings[userId].length > 0) {
+                const pendingObject =
+                    pendings[userId][pendings[userId].length - 1].pendingObject;
+                pendingObject.stop().catch((e) => log.error(e));
+                pendingObject.removeAllListeners("challenge");
+                pendingObject.removeAllListeners("challengeverification");
+                pendingObject.removeAllListeners("error");
+                pendings[userId].shift();
+                plebbitFeedTgBot.telegram.sendMessage(
+                    ctx.from.id!,
+                    "Request destroyed"
+                );
+                if (pendings[userId] && pendings[userId].length > 0) {
+                    await sendChallengeMessage(
+                        userId,
+                        pendings[userId][0].image,
+                        pendings[userId][0].pendingObject,
+                        true
+                    );
+                }
             }
-        } catch (e) {
-            log.error(e);
+        } else {
+            const vote = ctx.match[0] === "upvote" ? 1 : -1;
+            const user = await isUserRegistered(`${ctx.from!.id}`);
+            log.warn("User ", user, " is upvoting");
+            try {
+                await ctx.answerCbQuery(
+                    user
+                        ? "Sending vote, please check @plebgrambot"
+                        : `⚠️⚠️⚠️ start @plebgrambot ⚠️⚠️⚠️`
+                );
+                if (user) {
+                    await onVote(ctx, vote);
+                }
+            } catch (e) {
+                log.error(e);
+            }
         }
     });
 
-    bot.command("login", async (ctx) => {
-        log.info(ctx.message.from.username + " asked for login");
-        if (await isUserRegistered(`${ctx.message.chat.id}`)) {
-            ctx.reply("You are already logged in");
-            return;
+    //bot.command("login", async (ctx) => {
+    //    log.info(ctx.message.from.username + " asked for login");
+    //    if (await isUserRegistered(`${ctx.message.chat.id}`)) {
+    //        ctx.reply("You are already logged in");
+    //        return;
+    //    }
+    //    log.info(ctx.message.from.username + " not logged in");
+    //    await ctx.scene.enter("sceneLogin");
+    //});
+    bot.start(async (ctx) => {
+        if (ctx.message.chat.id == ctx.message.from.id) {
+            log.info(ctx.message.from.username + " asked for register");
+            if (await isUserRegistered(`${ctx.message.chat.id}`)) {
+                ctx.reply("You are already logged in");
+                return;
+            }
+            log.info(ctx.message.from.username + " not logged in");
+            await ctx.scene.enter("sceneRegister");
         }
-        log.info(ctx.message.from.username + " not logged in");
-        await ctx.scene.enter("sceneLogin");
-    });
-    bot.command("register", async (ctx) => {
-        log.info(ctx.message.from.username + " asked for register");
-        if (await isUserRegistered(`${ctx.message.chat.id}`)) {
-            ctx.reply("You are already logged in");
-            return;
-        }
-        log.info(ctx.message.from.username + " not logged in");
-        await ctx.scene.enter("sceneRegister");
     });
     bot.on(message("text"), async (ctx) => {
-        log.info(ctx.message!.from.username + " sent a message");
-        log.info(inspect(pendingVotes, false, 1));
-        if (
-            pendingVotes[ctx.message.from.id] &&
-            pendingVotes[ctx.message.from.id].length > 0
-        ) {
-            await handlePublishChallengeAnswer(
-                `${ctx.message.from.id}`,
-                ctx.message.text
-            );
+        if (String(ctx.from.id) == process.env.CHAT_BOT_ID!) {
             return;
+        }
+        log.info(ctx.message!.from.username + " sent a message");
+        log.info(inspect(pendings, false, 1));
+        if (ctx.message.chat.id == ctx.message.from.id) {
+            if (
+                pendings[ctx.message.from.id] &&
+                pendings[ctx.message.from.id].length > 0 &&
+                ctx.message.chat.id == ctx.message.from.id
+            ) {
+                await handlePublishChallengeAnswer(
+                    `${ctx.message.from.id}`,
+                    ctx.message.text
+                );
+                return;
+            }
+        } else {
+            if (
+                ctx.message.chat.id == Number(process.env.COMMENT_CHAT)! &&
+                ctx.message.hasOwnProperty("reply_to_message")
+            ) {
+                const user = await isUserRegistered(`${ctx.message.from.id}`);
+                if (user) {
+                    // the user must me registered and the message must be from the comment
+                    // chat to have the message saved
+                    try {
+                        log.info("User ", user, " is commmenting");
+                        log.info(ctx.message);
+                        await messageService.createMessage(ctx.message);
+                        await onComment(ctx);
+                    } catch (e) {
+                        log.error(e);
+                    }
+                }
+            }
         }
     });
 }
-function getSubPost(message: any) {
-    const regexSub = /Subplebbit:\s*(.*)/;
-    const regexPost = /\/c\/(.*)/;
-    let sub = "";
-    if ("caption" in message) {
-        sub = message.caption.match(regexSub)[1];
-    } else {
-        sub = message.text.match(regexSub)[1];
-    }
-    log.info("Getting sub from message", sub);
-    const splittedPostUrl =
-        message.reply_markup.inline_keyboard[0][0].url.match(regexPost);
-    log.info(splittedPostUrl);
-    const post = splittedPostUrl[1];
-    log.info("Getting post from message", post);
+function getSubPost(url: string) {
+    log.info(url);
+    const regexSub = /\/p\/([^/]+)/;
+    const regexPost = /\/c\/([^/]+)/;
+    const subMatch = url.match(regexSub);
+    const postMatch = url.match(regexPost);
+    const sub = subMatch![1];
+    const post = postMatch![1];
     return [sub, post];
+    //let sub = "";
+    //if ("caption" in message) {
+    //    sub = message.caption.match(regexSub)[1];
+    //} else {
+    //    sub = message.text.match(regexSub)[1];
+    //}
+    //log.info("Getting sub from message", sub);
+    //const splittedPostUrl =
+    //    message.reply_markup.inline_keyboard[0][0].url.match(regexPost);
+    //log.info(splittedPostUrl);
+    //const post = splittedPostUrl[1];
+    //log.info("Getting post from message", post);
+    //return [sub, post];
 }
 
 const sceneRegister = new Scenes.WizardScene<Scenes.WizardContext>(
