@@ -11,15 +11,66 @@ import { inspect } from "util";
 import Jimp from "jimp";
 import { MessageService } from "../services/message.service.js";
 import { Comment } from "@plebbit/plebbit-js/dist/node/comment.js";
-import Author from "@plebbit/plebbit-js/dist/node/author.js";
+import { fetchSubs } from "../plebbitfeed/plebbit-feed-bot.js";
 
 const userService = new UserService();
 const messageService = new MessageService();
 const plebbitService = new PlebbitService();
+let monospaceSubList = "";
 
 const pendings: {
     [key: string]: { pendingObject: Vote | Comment; image: string }[];
 } = {};
+const onPost = async (ctx: any) => {
+    const post = ctx.wizard.state.postData;
+    log.info(ctx.message);
+
+    log.info("New post to be created: ", post);
+    log.info(inspect(pendings, false, 1));
+    const signer = await getSignerFromTelgramUserId(`${ctx.message.from!.id}`);
+    if (!signer) {
+        return;
+    }
+    const newPost = await plebbit.createComment({
+        signer: signer,
+        content: post.content !== "." ? post.content : "",
+        subplebbitAddress: post.sub,
+        title: post.title,
+        link: post.link,
+        author: {
+            address: signer.address,
+            shortAddress: signer.shortAddress,
+            displayName: `${ctx.message.from.hasOwnProperty("first_name") ? ctx.message.from.first_name : ""} ${ctx.message.from.hasOwnProperty("last_name") ? ctx.message.from.last_name : ""} (t.me/${ctx.message.from.username})`,
+        },
+    });
+    newPost.on("challenge", (challengeMessage) => {
+        log.info("Challenge received");
+        sendChallengeMessage(
+            `${ctx.from!.id}`,
+            challengeMessage.challenges[0].challenge,
+            newPost,
+            false
+        );
+    });
+    newPost.on("challengeverification", (challengeVerification: any) => {
+        log.info("Verifying challenge answer");
+        sendChallengeVerificationMessage(
+            `${ctx.from!.id}`,
+            challengeVerification,
+            newPost,
+            ctx
+        );
+    });
+    newPost.on("error", (err) => {
+        // this should destroy the vote if no challenge is received
+        sendErrorMessage(`${ctx.from!.id}`, err);
+        newPost.stop().catch((e) => log.error(e));
+        newPost.removeAllListeners("challenge");
+        newPost.removeAllListeners("challengeverification");
+        newPost.removeAllListeners("error");
+    });
+    await newPost.publish();
+};
 const onComment = async (ctx: any) => {
     log.info(inspect(pendings, false, 1));
     const signer = await getSignerFromTelgramUserId(`${ctx.message.from!.id}`);
@@ -30,12 +81,32 @@ const onComment = async (ctx: any) => {
     let replyCid = "";
     let sub = "";
     let replyToReply = "";
-    if (ctx.message.reply_to_message.hasOwnProperty("entities")) {
+    if (ctx.message.reply_to_message.hasOwnProperty("caption_entities")) {
         log.info("message directly pointing to post");
+        log.info(
+            ctx.message.reply_to_message.caption_entities[
+                ctx.message.reply_to_message.caption_entities.length - 1
+            ].url
+        );
+        log.info(ctx.message.reply_to_message.caption_entities);
+        [sub, replyCid] = getSubPost(
+            ctx.message.reply_to_message.caption_entities[
+                ctx.message.reply_to_message.caption_entities.length - 1
+            ].url
+        )!;
+    } else if (ctx.message.reply_to_message.hasOwnProperty("entities")) {
+        log.info("message directly pointing to post");
+        log.info(
+            ctx.message.reply_to_message.entities[
+                ctx.message.reply_to_message.entities.length - 1
+            ].url
+        );
         log.info(ctx.message.reply_to_message.entities);
         [sub, replyCid] = getSubPost(
-            ctx.message.reply_to_message.entities[0].url
-        );
+            ctx.message.reply_to_message.entities[
+                ctx.message.reply_to_message.entities.length - 1
+            ].url
+        )!;
     } else {
         // look in the reply thread if the original message is a post in plebgram
         let repliedPost = await messageService.getMessage(
@@ -43,16 +114,33 @@ const onComment = async (ctx: any) => {
         );
         log.info("loaded message ", repliedPost.message_id);
         while (repliedPost) {
-            if (repliedPost.hasOwnProperty("cid")) {
+            if (repliedPost.hasOwnProperty("cid") && replyToReply === "") {
                 replyToReply = repliedPost.cid;
             }
             // check if it is replying to something
             if (repliedPost.hasOwnProperty("reply_to_message")) {
-                if (repliedPost.reply_to_message.hasOwnProperty("entities")) {
+                if (
+                    repliedPost.reply_to_message.hasOwnProperty(
+                        "caption_entities"
+                    )
+                ) {
                     log.info("original post found");
                     [sub, replyCid] = getSubPost(
-                        repliedPost.reply_to_message.entities[0].url
-                    );
+                        repliedPost.reply_to_message.caption_entities[
+                            repliedPost.reply_to_message.caption_entities
+                                .length - 1
+                        ].url
+                    )!;
+                    break;
+                } else if (
+                    repliedPost.reply_to_message.hasOwnProperty("entities")
+                ) {
+                    log.info("original post found");
+                    [sub, replyCid] = getSubPost(
+                        repliedPost.reply_to_message.entities[
+                            repliedPost.reply_to_message.entities.length - 1
+                        ].url
+                    )!;
                     break;
                 } else {
                     // crawling to upper message
@@ -79,6 +167,7 @@ const onComment = async (ctx: any) => {
         author: {
             address: signer.address,
             shortAddress: signer.shortAddress,
+            displayName: `${ctx.message.from.hasOwnProperty("first_name") ? ctx.message.from.first_name : ""} ${ctx.message.from.hasOwnProperty("last_name") ? ctx.message.from.last_name : ""} (t.me/${ctx.message.from.username})`,
         },
     });
     newComment.on("challenge", (challengeMessage) => {
@@ -132,7 +221,7 @@ const onVote = async (ctx: any, vote: 1 | -1) => {
     const signer = await getSignerFromTelgramUserId(`${ctx.from!.id}`);
     const [sub, post] = getSubPost(
         ctx.update.callback_query.message.reply_markup.inline_keyboard[0][1].url
-    );
+    )!;
     if (!signer) {
         ctx.answerCbQuery("⚠️⚠️⚠️ start @plebgrambot ⚠️⚠️⚠️");
         return;
@@ -242,7 +331,7 @@ const sendChallengeVerificationMessage = async (
     pendingObject.removeAllListeners("challenge");
     pendingObject.removeAllListeners("challengeverification");
     pendingObject.removeAllListeners("error");
-    if (pendings[userId].length > 0) {
+    if (pendings.hasOwnProperty(`${userId}`) && pendings[userId].length > 0) {
         pendings[userId].shift();
     }
     log.info(inspect("Verifying challenge: ", challengeVerification, 2, false));
@@ -338,6 +427,10 @@ export async function isUserRegistered(
 }
 
 export async function startPlebgramBot(bot: Telegraf<Scenes.WizardContext>) {
+    const subsFetched = await fetchSubs();
+    monospaceSubList = subsFetched
+        .map((sub: string) => `<code>${sub}</code>`)
+        .join("\n");
     //    bot.start(async (ctx) => {
     //        log.info(ctx.message.from.username + " started the bot");
     //        if (!(await isUserRegistered(`${ctx.from!.id}`))) {
@@ -402,6 +495,12 @@ export async function startPlebgramBot(bot: Telegraf<Scenes.WizardContext>) {
         }
     });
 
+    bot.command("post", async (ctx) => {
+        log.info(ctx.message.from.username + " asked for post creation");
+
+        await ctx.scene.enter("scenePost");
+    });
+
     //bot.command("login", async (ctx) => {
     //    log.info(ctx.message.from.username + " asked for login");
     //    if (await isUserRegistered(`${ctx.message.chat.id}`)) {
@@ -422,12 +521,17 @@ export async function startPlebgramBot(bot: Telegraf<Scenes.WizardContext>) {
             await ctx.scene.enter("sceneRegister");
         }
     });
-    bot.on(message("text"), async (ctx) => {
+    bot.on(message(), async (ctx: any) => {
         if (String(ctx.from.id) == process.env.CHAT_BOT_ID!) {
+            await messageService.createMessagePost(ctx.message).then(() => {
+                log.info("Message post created ");
+            });
             return;
         }
+        log.info(ctx.message);
         log.info(ctx.message!.from.username + " sent a message");
         log.info(inspect(pendings, false, 1));
+        // is it dming the bot?
         if (ctx.message.chat.id == ctx.message.from.id) {
             if (
                 pendings[ctx.message.from.id] &&
@@ -462,15 +566,22 @@ export async function startPlebgramBot(bot: Telegraf<Scenes.WizardContext>) {
         }
     });
 }
-function getSubPost(url: string) {
-    log.info(url);
-    const regexSub = /\/p\/([^/]+)/;
-    const regexPost = /\/c\/([^/]+)/;
-    const subMatch = url.match(regexSub);
-    const postMatch = url.match(regexPost);
-    const sub = subMatch![1];
-    const post = postMatch![1];
-    return [sub, post];
+function getSubPost(content: string) {
+    const regex = /\/p\/([^/]+)\/c\/([^/]+)\//g;
+    let match;
+    let lastMatch: RegExpExecArray | null = null;
+
+    while ((match = regex.exec(content)) !== null) {
+        lastMatch = match;
+    }
+
+    if (lastMatch && lastMatch.length === 3) {
+        const sub = lastMatch[1];
+        const post = lastMatch[2];
+        return [sub, post];
+    } else {
+        return null;
+    }
     //let sub = "";
     //if ("caption" in message) {
     //    sub = message.caption.match(regexSub)[1];
@@ -500,6 +611,42 @@ Address: ${loadedSigner.address}
 Private key: ${loadedSigner.privateKey}
 Public Key: ${loadedSigner.publicKey}
 Short Address: ${loadedSigner.shortAddress}`);
+        return ctx.scene.leave();
+    }
+);
+const scenePost = new Scenes.WizardScene<Scenes.WizardContext>(
+    "scenePost",
+    (ctx: any) => {
+        ctx.reply("Post title: ");
+        ctx.wizard.state.postData = {};
+        return ctx.wizard.next();
+    },
+    (ctx: any) => {
+        ctx.wizard.state.postData.title = ctx.message.text;
+        ctx.reply("Post content (send a '.' to leave it blank): ");
+        return ctx.wizard.next();
+    },
+    (ctx: any) => {
+        ctx.wizard.state.postData.content = ctx.message.text;
+        ctx.reply("Media link (send a '.' to leave it blank): ");
+        return ctx.wizard.next();
+    },
+    (ctx: any) => {
+        ctx.wizard.state.postData.link = ctx.message.text;
+        ctx.reply(
+            `Select the sub to post on by copying and pasting the address:
+${monospaceSubList}
+`,
+            {
+                parse_mode: "HTML",
+            }
+        );
+        return ctx.wizard.next();
+    },
+    async (ctx: any) => {
+        ctx.wizard.state.postData.sub = ctx.message.text;
+        ctx.reply("Creating request...");
+        await onPost(ctx);
         return ctx.scene.leave();
     }
 );
@@ -549,4 +696,5 @@ Short Address: ${loadedSigner.shortAddress}`);
 const stage = new Scenes.Stage<Scenes.WizardContext>([
     sceneLogin,
     sceneRegister,
+    scenePost,
 ]);

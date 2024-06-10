@@ -1,11 +1,10 @@
 import * as fs from "fs";
 import { Markup, Scenes, Telegraf } from "telegraf";
-import { log, plebbit } from "../index.js";
+import { log, plebbit, plebbitFeedTgBot } from "../index.js";
 import { Plebbit as PlebbitType } from "@plebbit/plebbit-js/dist/node/plebbit.js";
 import fetch from "node-fetch";
 import { RemoteSubplebbit } from "@plebbit/plebbit-js/dist/node/subplebbit/remote-subplebbit.js";
 import PQueue from "p-queue";
-import { rejects } from "assert";
 
 const queue = new PQueue({ concurrency: 1 });
 const historyCidsFile = "history.json";
@@ -25,7 +24,6 @@ async function scrollPosts(
         while (currentPostCid && counter < 20) {
             counter += 1;
             if (!processedCids.Cids.includes(currentPostCid)) {
-                processedCids.Cids.push(currentPostCid);
                 const newPost = await plebbit.getComment(currentPostCid);
                 const postData = {
                     title: newPost.title ? newPost.title : "",
@@ -62,23 +60,7 @@ async function scrollPosts(
                             "...";
                     }
                 }
-                const captionMessage = `<b>${postData.title}</b>\n${postData.content}\n\nSubmited on <a href="https://plebchan.eth.limo/#/p/${newPost.subplebbitAddress}">p/${newPost.subplebbitAddress}</a> by ${newPost.author.address.includes(".") ? newPost.author.address : newPost.author.shortAddress}`;
-                const markupButtons = [
-                    [
-                        Markup.button.url(
-                            "View on Seedit",
-                            `https://seedit.eth.limo/#/p/${newPost.subplebbitAddress}/c/${newPost.postCid}`
-                        ),
-                        Markup.button.url(
-                            "View on Plebchan",
-                            `https://plebchan.eth.limo/#/p/${newPost.subplebbitAddress}/c/${newPost.postCid}`
-                        ),
-                    ],
-                    [
-                        Markup.button.callback("-1", "downvote"),
-                        Markup.button.callback("+1", "upvote"),
-                    ],
-                ];
+                const captionMessage = `<b>${postData.title}</b>\n${postData.content}\n\nSubmited on <a href="https://plebchan.eth.limo/#/p/${newPost.subplebbitAddress}">p/${newPost.subplebbitAddress}</a> by ${newPost.author.address.includes(".") ? newPost.author.address : newPost.author.shortAddress}\n<a href="https://seedit.eth.limo/#/p/${newPost.subplebbitAddress}/c/${newPost.postCid}/">View on Seedit</a> | <a href="https://plebchan.eth.limo/#/p/${newPost.subplebbitAddress}/c/${newPost.postCid}/">View on Plebchan</a>`;
 
                 if (postData.link) {
                     await queue.add(async () => {
@@ -89,20 +71,10 @@ async function scrollPosts(
                                 {
                                     parse_mode: "HTML",
                                     caption: captionMessage,
-                                    ...Markup.inlineKeyboard(markupButtons),
                                 }
                             )
-                            .then(async () => {
-                                await new Promise((resolve) =>
-                                    setTimeout(resolve, 1 * 1000)
-                                );
-                                tgBotInstance.telegram.sendMessage(
-                                    process.env.FEED_BOT_CHAT!,
-                                    `<a href="https://plebchan.eth.limo/#/p/${newPost.subplebbitAddress}/c/${newPost.postCid}">💬</a>`,
-                                    {
-                                        parse_mode: "HTML",
-                                    }
-                                );
+                            .then(() => {
+                                processedCids.Cids.push(currentPostCid);
                             })
                             .catch((error: any) => {
                                 log.error(error);
@@ -113,23 +85,10 @@ async function scrollPosts(
                                         captionMessage,
                                         {
                                             parse_mode: "HTML",
-
-                                            ...Markup.inlineKeyboard(
-                                                markupButtons
-                                            ),
                                         }
                                     )
-                                    .then(async () => {
-                                        await new Promise((resolve) =>
-                                            setTimeout(resolve, 1 * 1000)
-                                        );
-                                        tgBotInstance.telegram.sendMessage(
-                                            process.env.FEED_BOT_CHAT!,
-                                            `<a href="https://plebchan.eth.limo/#/p/${newPost.subplebbitAddress}/c/${newPost.postCid}">💬</a>`,
-                                            {
-                                                parse_mode: "HTML",
-                                            }
-                                        );
+                                    .then(() => {
+                                        processedCids.Cids.push(currentPostCid);
                                     });
                             });
 
@@ -145,22 +104,11 @@ async function scrollPosts(
                                 captionMessage,
                                 {
                                     parse_mode: "HTML",
-                                    ...Markup.inlineKeyboard(markupButtons),
                                 }
                             )
-                            .then(async () => {
-                                await new Promise((resolve) =>
-                                    setTimeout(resolve, 2 * 1000)
-                                );
-                                tgBotInstance.telegram.sendMessage(
-                                    process.env.FEED_BOT_CHAT!,
-                                    `<a href="https://plebchan.eth.limo/#/p/${newPost.subplebbitAddress}/c/${newPost.postCid}">💬</a>`,
-                                    {
-                                        parse_mode: "HTML",
-                                    }
-                                );
+                            .then(() => {
+                                processedCids.Cids.push(currentPostCid);
                             });
-
                         await new Promise((resolve) =>
                             setTimeout(resolve, 10 * 1000)
                         );
@@ -269,7 +217,7 @@ export async function startPlebbitFeedBot(
     }
 }
 
-async function fetchSubs() {
+export async function fetchSubs() {
     let subs = [];
     try {
         const response = await fetch(

@@ -16,6 +16,14 @@ export class MessageService {
         );
         return newMessage;
     }
+    async createMessagePost(message: any) {
+        const serielizedMesaage = JSON.stringify(message);
+        const newMessage = await client.set(
+            "post" + String(message.message_id),
+            serielizedMesaage
+        );
+        return newMessage;
+    }
     async editMessage(message: any) {
         const serielizedMessage = JSON.stringify(message);
         const newMessage = await client.set(
